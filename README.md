@@ -18,7 +18,7 @@
 
 1. ZIP 파일을 내려받아 **압축 해제**합니다.
 2. **최초 설치 시** 드라이버가 없다면 `Install-Drivers.cmd` 실행 → 안내에 따라 **재부팅**. 이미 USBip·HidHide가 정상 설치되어 있다면 이 단계는 건너뛰세요.
-3. 패드를 연결하고 `Start-ApexSenseBridge.cmd`를 실행합니다.
+3. 패드를 연결하고 **`ApexSenseBridgeTray.exe`를 실행**합니다. (`Start-ApexSenseBridge.cmd`로 실행해도 동일합니다.)
 4. DualSense 지원 PC 게임을 실행합니다. **Steam 게임은 해당 게임의 Steam Input을 비활성화**해야 할 수 있습니다.
 5. 게임별 **APEX 6 PCM → Linear** 증폭을 **100%부터 조금씩** 조절합니다.
 
