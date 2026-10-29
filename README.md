@@ -38,4 +38,11 @@
 - 라이선스: **GPL-3.0-or-later** ([전문](LICENSE) · [제3자 고지](THIRD_PARTY_NOTICES.md))
 - **이번 배포본에 대응하는 실제 소스:** [개발용 포크의 고정 커밋](https://github.com/ZaRi1l/ApexSenseBridge/tree/dcdeb42222296b40fb94b67e89e06c12f65d06c8) · [소스·빌드 안내](SOURCE-CODE.md)
 
-사용 중 문제가 있다면 [Issues에 오류 제보](https://github.com/ZaRi1l/ApexSenseBridge-Extended/issues)해 주세요.
+
+# 사용법
+<img width="1309" height="925" alt="image" src="https://github.com/user-attachments/assets/49aa609d-0629-4ba2-8210-ca38ae1ad283" />
+
+- 측정하기 버튼을 눌러서 최대 출력이 지금 쳐인지. 증폭 후에는 몇인지 볼수 있습니다.
+- 측정을 종료하면 관측된 기준 피크가 찍히는데 이게 최대값 이에요.
+- 여기서 선형증폭을 맞춰서 해주면 됩니다.
+- 선형증폭은 진동의 크기가 작든 크든 같은 배율로 진동의 크기가 커집니다.
