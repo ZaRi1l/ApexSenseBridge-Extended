@@ -1,0 +1,155 @@
+name: Build and publish Extension beta
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/publish-beta.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: extension-beta-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: windows-2022
+    timeout-minutes: 100
+    steps:
+      - name: Checkout distribution metadata
+        uses: actions/checkout@v4
+        with:
+          path: distribution
+
+      - name: Checkout exact tested Extension source
+        uses: actions/checkout@v4
+        with:
+          repository: ZaRi1l/ApexSenseBridge
+          ref: dcdeb42222296b40fb94b67e89e06c12f65d06c8
+          submodules: recursive
+          persist-credentials: false
+          path: source
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v3
+
+      - name: Setup Go for VIIPER sidecar
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache: false
+
+      - name: Build patched VIIPER backend and fallback
+        shell: powershell
+        working-directory: source
+        run: |
+          .\scripts\build-viiper-windows.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\scripts\build-libviiper-windows.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build native engine
+        shell: powershell
+        working-directory: source
+        run: |
+          .\scripts\build-windows.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build tray and run WPF tests
+        shell: powershell
+        working-directory: source
+        run: |
+          .\scripts\build-tray-app.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Native regression tests
+        shell: powershell
+        working-directory: source
+        run: |
+          ctest --test-dir .\build-win -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Create original portable package (not installer)
+        shell: powershell
+        working-directory: source
+        run: |
+          .\scripts\build-portable.ps1 -SkipBuild
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Add GPL and corresponding source details to public preview ZIP
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sourceZip = Join-Path $PWD 'source\dist\ApexSenseBridge-Portable.zip'
+          if (-not (Test-Path -LiteralPath $sourceZip -PathType Leaf)) { throw 'Portable ZIP missing' }
+          New-Item -ItemType Directory -Path 'release-output', 'release-staging' -Force | Out-Null
+          Expand-Archive -LiteralPath $sourceZip -DestinationPath 'release-staging' -Force
+          $upstream = Join-Path $PWD 'release-staging\ApexSenseBridge-Portable'
+          if (-not (Test-Path -LiteralPath $upstream -PathType Container)) { throw 'Unexpected portable ZIP layout' }
+          Rename-Item -LiteralPath $upstream -NewName 'ApexSenseBridge-Extended'
+          $payload = Join-Path $PWD 'release-staging\ApexSenseBridge-Extended'
+          foreach ($f in @(
+            'ApexSenseBridge.exe','ApexSenseBridgeControl.exe',
+            'ApexSenseBridgeTray.exe','libVIIPER.dll','viiper.exe',
+            'Start-ApexSenseBridge.cmd','Install-Drivers.cmd',
+            'Licenses\VIIPER-LICENSE.txt','Licenses\THIRD_PARTY_NOTICES.md',
+            'Drivers\USBip-0.9.8.0-x64.exe','Drivers\HidHide_1.5.230_x64.exe'
+          )) {
+            if (-not (Test-Path -LiteralPath (Join-Path $payload $f) -PathType Leaf)) {
+              throw "Missing required file in portable ZIP: $f"
+            }
+          }
+          Copy-Item 'distribution\COPYING' (Join-Path $payload 'Licenses\GPL-3.0.txt') -Force
+          Copy-Item 'distribution\SOURCE-CODE.md' (Join-Path $payload 'SOURCE-CODE.md') -Force
+          Copy-Item 'distribution\THIRD_PARTY_NOTICES.md' (Join-Path $payload 'THIRD_PARTY_NOTICES-DISTRIBUTION.md') -Force
+          $note = @(
+            'Unofficial ApexSenseBridge Extended beta - Windows 10/11 x64',
+            'Upstream: https://github.com/ReynArts/ApexSenseBridge',
+            'Source: https://github.com/ZaRi1l/ApexSenseBridge/tree/dcdeb42222296b40fb94b67e89e06c12f65d06c8',
+            'License: GPL-3.0-or-later (see Licenses/GPL-3.0.txt and notices)',
+            'This is an unsigned development build; hardware endurance is NOT certified.',
+            'Extract once; check Drivers/ prerequisites, then run Start-ApexSenseBridge.cmd.',
+            'Do not run this build alongside the original ApexSenseBridge.',
+            'Already installed USBip/HidHide drivers should not be reinstalled.',
+            'Stop using if the controller overheats, makes abnormal noise, or vibrates harshly.'
+          )
+          [System.IO.File]::WriteAllLines(
+            (Join-Path $payload 'READ-ME-FIRST.txt'),
+            $note, (New-Object System.Text.UTF8Encoding($false)))
+          if (@(Get-ChildItem -LiteralPath $payload -Filter '*.zip' -File).Count -gt 0) {
+            throw 'Nested ZIP not allowed'
+          }
+          $zip = Join-Path $PWD 'release-output\ApexSenseBridge-Extended-Preview-20261029.zip'
+          Compress-Archive -LiteralPath $payload -DestinationPath $zip -CompressionLevel Optimal
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $z = [System.IO.Compression.ZipFile]::OpenRead($zip)
+          try {
+            $paths = @($z.Entries | ForEach-Object { $_.FullName.Replace('\','/') })
+            foreach ($f in @('ApexSenseBridgeTray.exe','Start-ApexSenseBridge.cmd','Licenses/GPL-3.0.txt','SOURCE-CODE.md')) {
+              if (-not ($paths -contains "ApexSenseBridge-Extended/$f")) {
+                throw "Public ZIP missing $f"
+              }
+            }
+          } finally { $z.Dispose() }
+          $digest = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText(
+            (Join-Path $PWD 'release-output\SHA256SUMS.txt'),
+            "$digest  ApexSenseBridge-Extended-Preview-20261029.zip`n",
+            (New-Object System.Text.UTF8Encoding($false)))
+          Write-Host "Verified preview ZIP SHA-256: $digest"
+
+      - name: Publish public preview release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: extension-2026.10.29-beta.1
+          name: ApexSenseBridge Extended Preview (2026-10-29)
+          target_commitish: main
+          body_path: distribution/RELEASE_NOTES.md
+          prerelease: true
+          draft: false
+          fail_on_unmatched_files: true
+          files: |
+            release-output/ApexSenseBridge-Extended-Preview-20261029.zip
+            release-output/SHA256SUMS.txt
