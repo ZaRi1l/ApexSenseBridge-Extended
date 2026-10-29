@@ -1,0 +1,11 @@
+ApexSenseBridge Extended is an unofficial modification and distribution of ApexSenseBridge.
+
+ApexSenseBridge prototype source code in the upstream archive is provided under the GNU General Public License v3.0 or later.
+
+SPDX-License-Identifier: GPL-3.0-or-later
+
+See COPYING for the full GNU General Public License version 3 text.
+The work also contains separately licensed third-party components; see THIRD_PARTY_NOTICES.md.
+
+Upstream project: https://github.com/ReynArts/ApexSenseBridge
+Modified source: https://github.com/ZaRi1l/ApexSenseBridge/tree/dcdeb42222296b40fb94b67e89e06c12f65d06c8
