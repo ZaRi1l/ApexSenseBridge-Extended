@@ -1,0 +1,5 @@
+# Local builds and downloaded binaries
+_artifact/
+_release-staging/
+*.tmp
+*.log
