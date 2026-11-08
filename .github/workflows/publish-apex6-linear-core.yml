@@ -1,0 +1,193 @@
+name: Build and publish APEX 6 linear PCM core preview
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/publish-apex6-linear-core.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apex6-linear-core-preview
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: windows-2022
+    timeout-minutes: 100
+    steps:
+      - name: Checkout distribution repository
+        uses: actions/checkout@v4
+        with:
+          path: distribution
+
+      - name: Checkout pinned November 6 source
+        uses: actions/checkout@v4
+        with:
+          repository: ZaRi1l/ApexSenseBridge
+          ref: 890600568a35b3ab2db23a65e20925aaa9ce315b
+          submodules: recursive
+          persist-credentials: false
+          path: source
+
+      - name: Verify pinned source revision
+        shell: powershell
+        run: |
+          $actual = (git -C source rev-parse HEAD).Trim()
+          if ($actual -ne '890600568a35b3ab2db23a65e20925aaa9ce315b') { throw "Unexpected source revision: $actual" }
+          if (-not (Select-String -LiteralPath 'source\docs\APEX6_LINEAR_PCM_CONTRIBUTION.md' -Pattern 'apex6-linear-gain' -Quiet)) {
+            throw 'Required linear PCM feature documentation missing'
+          }
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v3
+
+      - name: Setup Go for VIIPER
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache: false
+
+      - name: Build VIIPER sidecar and fallback
+        shell: powershell
+        working-directory: source
+        run: |
+          .\scripts\build-viiper-windows.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\scripts\build-libviiper-windows.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build Windows native engine and WPF Tray
+        shell: powershell
+        working-directory: source
+        run: |
+          .\scripts\build-windows.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          .\scripts\build-tray-app.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run complete native regressions and repeated APEX 6 haptic tests
+        shell: powershell
+        working-directory: source
+        run: |
+          ctest --test-dir .\build-win -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --test-dir .\build-win -C Release --output-on-failure --repeat until-fail:3 -R "^(apex6_haptic_bridge|bridge_options)$"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package portable Windows executable
+        shell: powershell
+        working-directory: source
+        run: |
+          .\scripts\build-portable.ps1 -SkipBuild
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify package, attach corresponding source and hash
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $inputZip = Join-Path $PWD 'source\dist\ApexSenseBridge-Portable.zip'
+          if (-not (Test-Path -LiteralPath $inputZip -PathType Leaf)) { throw 'Portable ZIP missing' }
+          New-Item -ItemType Directory -Path 'release-output','release-staging' -Force | Out-Null
+          Expand-Archive -LiteralPath $inputZip -DestinationPath 'release-staging' -Force
+          $payload = Join-Path $PWD 'release-staging\ApexSenseBridge-Portable'
+          if (-not (Test-Path -LiteralPath $payload -PathType Container)) { throw 'Unexpected portable ZIP layout' }
+          Rename-Item -LiteralPath $payload -NewName 'ApexSenseBridge-APEX6-Linear-Core'
+          $payload = Join-Path $PWD 'release-staging\ApexSenseBridge-APEX6-Linear-Core'
+          foreach ($f in @(
+            'ApexSenseBridge.exe','ApexSenseBridgeControl.exe',
+            'ApexSenseBridgeTray.exe','libVIIPER.dll','viiper.exe',
+            'Install-Drivers.cmd','Start-ApexSenseBridge.cmd',
+            'Drivers\USBip-0.9.8.0-x64.exe','Drivers\HidHide_1.5.230_x64.exe',
+            'Licenses\THIRD_PARTY_NOTICES.md'
+          )) {
+            if (-not (Test-Path -LiteralPath (Join-Path $payload $f) -PathType Leaf)) {
+              throw "Missing required portable file: $f"
+            }
+          }
+          Copy-Item -LiteralPath 'distribution\COPYING' -Destination (Join-Path $payload 'Licenses\GPL-3.0.txt') -Force
+          Copy-Item -LiteralPath 'source\docs\APEX6_LINEAR_PCM_CONTRIBUTION.md' -Destination (Join-Path $payload 'APEX6_LINEAR_PCM_CONTRIBUTION.md') -Force
+          $sourceInfo = @(
+            '# Corresponding Source / 대응 소스코드',
+            '',
+            'This experimental ZIP was built from exactly:',
+            'https://github.com/ZaRi1l/ApexSenseBridge/tree/890600568a35b3ab2db23a65e20925aaa9ce315b',
+            '',
+            'This is an independent APEX 6 linear PCM core preview, not the older',
+            'Extended beta with per-game metering and custom Extended UI.',
+            'Original upstream: https://github.com/ReynArts/ApexSenseBridge',
+            'License: GPL-3.0-or-later; see Licenses and third-party notices.',
+            'To reproduce: clone recursively, checkout pinned SHA, then follow',
+            'scripts/build-viiper-windows.ps1, build-libviiper-windows.ps1,',
+            'build-windows.ps1, build-tray-app.ps1 and build-portable.ps1.'
+          )
+          [System.IO.File]::WriteAllLines((Join-Path $payload 'SOURCE-CODE.md'),$sourceInfo,(New-Object System.Text.UTF8Encoding($false)))
+          $readFirst = @(
+            'ApexSenseBridge APEX 6 Linear PCM CORE preview - unofficial / unsigned',
+            'Source revision: 890600568a35b3ab2db23a65e20925aaa9ce315b',
+            'Important: This is NOT the older Extended preview with peak meters,',
+            'per-game amplification UI, and Extended configuration screens.',
+            'The original upstream WPF Tray UI is unchanged in this branch.',
+            'Linear PCM gain is opt-in through command line:',
+            '  ApexSenseBridge.exe bridge-triggers --rumble --apex6-linear-gain 100',
+            '  ApexSenseBridge.exe bridge-triggers --rumble --apex6-linear-gain 200',
+            'Gain 100 is unchanged baseline. Change gradually (100, 150, 200).',
+            'Requires verified Flydigi APEX 6 Pro and native PCM.',
+            'Do not run alongside another ApexSenseBridge. Existing driver installs',
+            'do not need to be repeated. Stop if controller gets hot/noisy.',
+            'Not certified on physical controller or in all games.',
+            'See APEX6_LINEAR_PCM_CONTRIBUTION.md for detailed limitations.'
+          )
+          [System.IO.File]::WriteAllLines((Join-Path $payload 'READ-ME-FIRST.txt'),$readFirst,(New-Object System.Text.UTF8Encoding($false)))
+          $zipName = 'ApexSenseBridge-APEX6-Linear-Core-Preview-20261106.zip'
+          $zip = Join-Path $PWD ('release-output\'+$zipName)
+          Compress-Archive -LiteralPath $payload -DestinationPath $zip -CompressionLevel Optimal
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $z = [System.IO.Compression.ZipFile]::OpenRead($zip)
+          try {
+            $paths = @($z.Entries | ForEach-Object { $_.FullName.Replace('\','/') })
+            foreach ($f in @('ApexSenseBridge.exe','ApexSenseBridgeTray.exe','SOURCE-CODE.md','Licenses/GPL-3.0.txt','READ-ME-FIRST.txt')) {
+              if (-not ($paths -contains "ApexSenseBridge-APEX6-Linear-Core/$f")) { throw "ZIP missing $f" }
+            }
+          } finally { $z.Dispose() }
+          $digest = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText((Join-Path $PWD 'release-output\SHA256SUMS-20261106.txt'),"$digest  $zipName`n",(New-Object System.Text.UTF8Encoding($false)))
+          $notes = @(
+            '## Experimental APEX 6 linear PCM CORE preview (November 6 source)',
+            '',
+            '**This is not a replacement for the October 29 Extended preview.**',
+            'It builds the original upstream-style Tray and a newer upstream-based',
+            'native engine with opt-in APEX 6 Pro linear PCM gain (0-1000%).',
+            'The Extended peak-meter, clipping UI and per-game gain settings',
+            'are intentionally NOT included in this core-only contribution.',
+            '',
+            'Source: https://github.com/ZaRi1l/ApexSenseBridge/tree/890600568a35b3ab2db23a65e20925aaa9ce315b',
+            'Windows CI builds the engine and WPF Tray and runs native regressions.',
+            'Real-controller stability, heat, games and firmware are not certified.',
+            '',
+            'Extract portable ZIP; use CLI:',
+            '`ApexSenseBridge.exe bridge-triggers --rumble --apex6-linear-gain 100`',
+            'then optionally 150 or 200. 100% is baseline; clipping is possible.',
+            'This CLI option requires a verified APEX 6 Pro and native PCM.',
+            'Do not run both versions together. Do not disable Windows security.',
+            '',
+            'For the original full Extended UI, keep using the separate Oct 29 ZIP.'
+          )
+          [System.IO.File]::WriteAllLines((Join-Path $PWD 'release-output\RELEASE_NOTES.md'),$notes,(New-Object System.Text.UTF8Encoding($false)))
+          Write-Host "Verified SHA-256: $digest"
+
+      - name: Publish a separate prerelease without changing the October 29 release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: extension-2026.11.06-linear-core-preview.1
+          name: APEX 6 Linear PCM Core Preview (2026-11-06 source)
+          target_commitish: main
+          body_path: release-output/RELEASE_NOTES.md
+          prerelease: true
+          draft: false
+          fail_on_unmatched_files: true
+          files: |
+            release-output/ApexSenseBridge-APEX6-Linear-Core-Preview-20261106.zip
+            release-output/SHA256SUMS-20261106.txt
