@@ -110,7 +110,7 @@ jobs:
           Copy-Item -LiteralPath 'distribution\COPYING' -Destination (Join-Path $payload 'Licenses\GPL-3.0.txt') -Force
           Copy-Item -LiteralPath 'source\docs\APEX6_LINEAR_PCM_CONTRIBUTION.md' -Destination (Join-Path $payload 'APEX6_LINEAR_PCM_CONTRIBUTION.md') -Force
           $sourceInfo = @(
-            '# Corresponding Source / 대응 소스코드',
+            '# Corresponding Source',
             '',
             'This experimental ZIP was built from exactly:',
             'https://github.com/ZaRi1l/ApexSenseBridge/tree/890600568a35b3ab2db23a65e20925aaa9ce315b',
