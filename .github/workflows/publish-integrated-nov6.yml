@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: full-extended-nov6-release
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   publish:
@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ZaRi1l/ApexSenseBridge
-          ref: b9df8a8738940655c841e81d48ff497afbf36193
+          ref: 7589dbb38e4a13b46d1d4f8e001fe878395206ff
           submodules: recursive
           persist-credentials: false
           path: source
@@ -90,6 +90,17 @@ jobs:
           ctest --test-dir .\build-win -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Validate Extended UI and PCM regression contracts
+        shell: powershell
+        working-directory: source
+        run: |
+          python tests/test_pcm_extension_isolation.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/test_pcm_wpf_contract.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/test_pcm_settings_monitor_contract.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Package full Extended ZIP (not installer)
         shell: powershell
         working-directory: source
@@ -123,8 +134,8 @@ jobs:
           Copy-Item 'distribution\COPYING' (Join-Path $payload 'Licenses\GPL-3.0.txt') -Force
           $sourceInfo = @(
             '# Corresponding Source',
-            'Exact source revision: b9df8a8738940655c841e81d48ff497afbf36193',
-            'https://github.com/ZaRi1l/ApexSenseBridge/tree/b9df8a8738940655c841e81d48ff497afbf36193',
+            'Exact source revision: 7589dbb38e4a13b46d1d4f8e001fe878395206ff',
+            'https://github.com/ZaRi1l/ApexSenseBridge/tree/7589dbb38e4a13b46d1d4f8e001fe878395206ff',
             'Original: https://github.com/ReynArts/ApexSenseBridge',
             'This preview includes Extended per-game UI and PCM live measurement.',
             'Build via scripts in pinned repository. See GPL and third-party notices.'
@@ -137,7 +148,7 @@ jobs:
           $note = @(
             'Unofficial full Extended November 6 integration beta - Windows 10/11 x64',
             'Upstream: https://github.com/ReynArts/ApexSenseBridge',
-            'Source: https://github.com/ZaRi1l/ApexSenseBridge/tree/b9df8a8738940655c841e81d48ff497afbf36193',
+            'Source: https://github.com/ZaRi1l/ApexSenseBridge/tree/7589dbb38e4a13b46d1d4f8e001fe878395206ff',
             'License: GPL-3.0-or-later (see Licenses/GPL-3.0.txt and notices)',
             'Unsigned experimental build; hardware endurance is NOT certified.',
             'Extract once; check Drivers/ prerequisites, then run Start-ApexSenseBridge.cmd.',
@@ -177,7 +188,7 @@ jobs:
             'Based on the November 6 upstream dev code and Extended UI merge.',
             'The November 6 integer linear PCM scaler is used by the UI.',
             '',
-            'Exact source: https://github.com/ZaRi1l/ApexSenseBridge/tree/b9df8a8738940655c841e81d48ff497afbf36193',
+            'Exact source: https://github.com/ZaRi1l/ApexSenseBridge/tree/7589dbb38e4a13b46d1d4f8e001fe878395206ff',
             '',
             'Windows 10/11 x64 unsigned experimental portable ZIP.',
             'Start ApexSenseBridgeTray.exe; do not run another ASB concurrently.',
